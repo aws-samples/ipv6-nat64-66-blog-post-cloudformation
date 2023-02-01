@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: This Cloudformation creates NAT66 resources
+Parameters:
+  LatestAmiId:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+  NAT66InstanceType:
+    Description: "Instance type of the NAT66 instance."
+    Type: String
+    Default: "t2.nano"
+  NetworkStackName:
+    Description: "Name of the base network stack"
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+  UserData:
+    Type: String
+    Default: |
+      #!/usr/bin/env bash
+      # NAT66 EC2 instance user data script.
+
+      # Error messages
+      trap 'echo "Aborting due to errexit on line $LINENO. Exit code: $?" >&2' ERR
+
+      # Strict mode
+      set -Eeuo pipefail
+
+      # Set $IFS to only newline and tab
+      IFS=$'\n\t'
+
+      # Set kernel parameters
+      sysctl -w net.ipv6.conf.all.forwarding=1
+      sysctl -w net.ipv6.conf.eth0.accept_ra=2
+
+      # Persist kernel parameters
+      cat <<EOF > /etc/sysctl.d/10-nat66.conf
+      net.ipv6.conf.all.forwarding = 1
+      net.ipv6.conf.eth0.accept_ra = 2
+      EOF
+
+      # Set ip6tables rules
+      ip6tables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+      ip6tables -A FORWARD -i eth0 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+      ip6tables -A FORWARD -i eth0 -o eth0 -j ACCEPT
+
+      # Persist ip6tables rules
+      ip6tables-save > /etc/sysconfig/ip6tables
+
+      # Install iptables-services
+      yum install -y iptables-services
+
+      # Enable ip6tables
+      systemctl enable ip6tables
+
+      # Start ip6tables
+      systemctl start ip6tables
+Resources:
+  SecurityGroupNAT66:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W5
+            reason: "Traffic filtering will be performed by the NAT instances"
+          - id: W28
+            reason: "Providing a descriptive name for this security group"
+          - id: W40
+            reason: "Traffic filtering will be performed by the NAT instances"
+          - id: W42
+            reason: "Required when performing NAT"
+    Properties:
+      GroupDescription: Security Group to access EC2 and Endpoints
+      GroupName: SGforNAT66
+      VpcId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressVPC"
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIpv6: !ImportValue
+            "Fn::Sub": "${NetworkStackName}-App1CIDRPrefix"
+          Description: "Allow traffic from App1-VPC"
+        - IpProtocol: -1
+          CidrIpv6: !ImportValue
+            "Fn::Sub": "${NetworkStackName}-App2CIDRPrefix"
+          Description: "Allow traffic from App2-VPC"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: "Allow all outbound traffic (IPv4)"
+        - IpProtocol: -1
+          CidrIpv6: ::/0
+          Description: "Allow all outbound traffic (IPv4)"
+  NAT66EC2InstanceAZ1:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref NAT66InstanceType
+      Ipv6AddressCount: 1
+      SourceDestCheck: false
+      SecurityGroupIds:
+        - Ref: SecurityGroupNAT66
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            Encrypted: true
+            VolumeType: gp3
+      SubnetId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPublicSubnetAZ1"
+      Tags:
+        - Key: Name
+          Value: IPv6NAT66-AZ1
+      UserData:
+        "Fn::Base64": !Ref UserData
+  NAT66EC2InstanceAZ2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref NAT66InstanceType
+      Ipv6AddressCount: 1
+      SourceDestCheck: false
+      SecurityGroupIds:
+        - Ref: SecurityGroupNAT66
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            Encrypted: true
+            VolumeType: gp3
+      SubnetId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPublicSubnetAZ2"
+      Tags:
+        - Key: Name
+          Value: IPv6NAT66-AZ2
+      UserData:
+        "Fn::Base64": !Ref UserData
+  EgressNAT66InternetRouteAZ1:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPrivateRTAZ1"
+      InstanceId: !Ref NAT66EC2InstanceAZ1
+  EgressNAT66InternetRouteAZ2:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPrivateRTAZ2"
+      InstanceId: !Ref NAT66EC2InstanceAZ2
+  App1NAT66Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App1PrivateRT"
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+  App2NAT66Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App2PrivateRT"
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+  IPv6EgressTransitGatewayNAT66Route:
+    Type: AWS::EC2::TransitGatewayRoute
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - E3031
+    Properties:
+      DestinationCidrBlock: ::/0
+      TransitGatewayRouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-AppTransitGatewayRouteTable"
+      TransitGatewayAttachmentId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressTransitGatewayAttachment"

@@ -1,0 +1,34 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This Cloudformation creates Egress Only Internet Gateways for App VPC
+Parameters:
+  NetworkStackName:
+    Description: "Name of the base network stack"
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+Resources:
+  EIGWApp1VPC:
+    Type: AWS::EC2::EgressOnlyInternetGateway
+    Properties:
+      VpcId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App1VPC"
+  EIGWApp2VPC:
+    Type: AWS::EC2::EgressOnlyInternetGateway
+    Properties:
+      VpcId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App2VPC"
+  App1EIGWRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App1PrivateRT"
+      EgressOnlyInternetGatewayId: !Ref EIGWApp1VPC
+  App2EIGWRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App2PrivateRT"
+      EgressOnlyInternetGatewayId: !Ref EIGWApp2VPC

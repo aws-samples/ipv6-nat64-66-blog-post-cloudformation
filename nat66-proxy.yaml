@@ -1,0 +1,305 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: This Cloudformation creates NAT66 resources
+Parameters:
+  LatestAmiId:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+  NAT66InstanceType:
+    Description: "Instance type of the NAT66 Proxy instance."
+    Type: String
+    Default: "t2.nano"
+  NetworkStackName:
+    Description: "Name of the base network stack"
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+
+Resources:
+  SecurityGroupNAT66Proxy:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W5
+            reason: "Traffic filtering will be performed by the proxy instances"
+          - id: W28
+            reason: "Providing a descriptive name for this security group"
+          - id: W40
+            reason: "Traffic filtering will be performed by the proxy instances"
+    Properties:
+      GroupDescription: Security Group to access EC2 and Endpoints
+      GroupName: SGforNAT66Proxy
+      VpcId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressVPC"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3128
+          ToPort: 3128
+          CidrIpv6: !ImportValue
+            "Fn::Sub": "${NetworkStackName}-App1CIDRPrefix"
+          Description: "Allow traffic on proxy port from App1-VPC"
+        - IpProtocol: tcp
+          FromPort: 3128
+          ToPort: 3128
+          CidrIpv6: !ImportValue
+            "Fn::Sub": "${NetworkStackName}-App2CIDRPrefix"
+          Description: "Allow traffic on proxy port from App2-VPC"
+        - IpProtocol: tcp
+          FromPort: 3128
+          ToPort: 3128
+          CidrIpv6: !ImportValue
+            "Fn::Sub": "${NetworkStackName}-EgressCIDRPrefix"
+          Description: "Allow traffic on proxy port from Egress-VPC (IPv6)"
+        - IpProtocol: tcp
+          FromPort: 3128
+          ToPort: 3128
+          CidrIp: !ImportValue
+            "Fn::Sub": "${NetworkStackName}-EgressCIDRIPv4Prefix"
+          Description: "Allow traffic on proxy port from Egress-VPC (IPv4)"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: "Allow all outbound traffic (IPv4)"
+        - IpProtocol: -1
+          CidrIpv6: ::/0
+          Description: "Allow all outbound traffic (IPv6)"
+  Nat66ProxyLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref NAT66InstanceType
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: true
+            DeviceIndex: 0
+            Groups:
+              - Ref: SecurityGroupNAT66Proxy
+        BlockDeviceMappings:
+          - DeviceName: "/dev/xvda"
+            Ebs:
+              Encrypted: true
+              VolumeType: gp3
+        UserData:
+          Fn::Base64:
+            Fn::Sub:
+              - |
+                #!/usr/bin/env bash
+                #
+                # Proxy EC2 instance user data script.
+
+                # Error messages
+                trap 'echo "Aborting due to errexit on line $LINENO. Exit code: $?" >&2' ERR
+
+                # Strict mode
+                set -Eeuo pipefail
+
+                # Set $IFS to only newline and tab
+                IFS=$'\n\t'
+
+                # Install squid
+                yum install -y squid
+
+                # Configure squid
+                cat <<EOF > /etc/squid/squid.conf
+                #
+                # Recommended minimum configuration:
+                #
+
+                # Example rule allowing access from your local networks.
+                # Adapt to list your (internal) IP networks from where browsing
+                # should be allowed
+                acl localnet src 10.0.0.0/8     # RFC1918 possible internal network
+                acl localnet src 172.16.0.0/12  # RFC1918 possible internal network
+                acl localnet src 192.168.0.0/16 # RFC1918 possible internal network
+                acl localnet src fc00::/7       # RFC 4193 local private network range
+                acl localnet src fe80::/10      # RFC 4291 link-local (directly plugged) machines
+
+                acl SSL_ports port 443
+                acl Safe_ports port 80          # http
+                acl Safe_ports port 21          # ftp
+                acl Safe_ports port 443         # https
+                acl Safe_ports port 70          # gopher
+                acl Safe_ports port 210         # wais
+                acl Safe_ports port 1025-65535  # unregistered ports
+                acl Safe_ports port 280         # http-mgmt
+                acl Safe_ports port 488         # gss-http
+                acl Safe_ports port 591         # filemaker
+                acl Safe_ports port 777         # multiling http
+                acl CONNECT method CONNECT
+
+                # VPCs
+                acl vpc src ${EgressCIDRIPv4} # EgressIPv4-VPC
+
+                #
+                # Recommended minimum Access Permission configuration:
+                #
+
+                # Deny requests to certain unsafe ports
+                http_access deny !Safe_ports
+
+                # Deny CONNECT to other than secure SSL ports
+                http_access deny CONNECT !SSL_ports
+
+                # Only allow cachemgr access from localhost
+                http_access allow localhost manager
+                http_access deny manager
+
+                # We strongly recommend the following be uncommented to protect innocent
+                # web applications running on the proxy server who think the only
+                # one who can access services on "localhost" is a local user
+                #http_access deny to_localhost
+
+                #
+                # INSERT YOUR OWN RULE(S) HERE TO ALLOW ACCESS FROM YOUR CLIENTS
+                #
+
+                # Example rule allowing access from your local networks.
+                # Adapt localnet in the ACL section to list your (internal) IP networks
+                # from where browsing should be allowed
+                http_access allow localnet
+                http_access allow localhost
+                http_access allow vpc
+
+                # And finally deny all other access to this proxy
+                http_access deny all
+
+                # Squid normally listens to port 3128
+                http_port 3128
+
+                # Uncomment and adjust the following to add a disk cache directory.
+                #cache_dir ufs /var/spool/squid 100 16 256
+
+                # Leave coredumps in the first cache dir
+                coredump_dir /var/spool/squid
+
+                #
+                # Add any of your own refresh_pattern entries above these.
+                #
+                refresh_pattern ^ftp:           1440    20%     10080
+                refresh_pattern ^gopher:        1440    0%      1440
+                refresh_pattern -i (/cgi-bin/|\?) 0     0%      0
+                refresh_pattern .               0       20%     4320
+                EOF
+
+                # Enable squid
+                systemctl enable squid
+
+                # Start squid
+                systemctl start squid
+              - EgressCIDRIPv4:
+                  Fn::ImportValue: !Sub "${NetworkStackName}-EgressCIDRIPv4Prefix"
+  DeployNat66ProxyASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !ImportValue
+          "Fn::Sub": "${NetworkStackName}-EgressPublicSubnetAZ1"
+        - !ImportValue
+          "Fn::Sub": "${NetworkStackName}-EgressPublicSubnetAZ2"
+      DesiredCapacity: 2
+      LaunchTemplate:
+        LaunchTemplateId: !Ref Nat66ProxyLaunchTemplate
+        Version: !GetAtt Nat66ProxyLaunchTemplate.LatestVersionNumber
+      MaxSize: 3
+      MinSize: 2
+      TargetGroupARNs:
+        - !Ref NAT66ProxyTargetGroup
+      Tags:
+        - Key: Name
+          Value: IPv6NAT66Proxy-ASG
+          PropagateAtLaunch: True
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: True
+  NAT66ProxyNLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: dualstack
+      Type: network
+      Scheme: internal
+      Subnets:
+        - !ImportValue
+          "Fn::Sub": "${NetworkStackName}-EgressPrivateSubnetAZ1"
+        - !ImportValue
+          "Fn::Sub": "${NetworkStackName}-EgressPrivateSubnetAZ2"
+  NAT66ProxyListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref NAT66ProxyTargetGroup
+      LoadBalancerArn: !Ref NAT66ProxyNLB
+      Port: 3128
+      Protocol: TCP
+  NAT66ProxyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressVPC"
+      TargetType: instance
+      Port: 3128
+      Protocol: TCP
+  App1NAT66Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressCIDRPrefix"
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App1PrivateRT"
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+  App1PrivateEgressAZ1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App1CIDRPrefix"
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPrivateRTAZ1"
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+  App2PrivateEgressAZ1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App2CIDRPrefix"
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPrivateRTAZ1"
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+  App1PrivateEgressAZ2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App1CIDRPrefix"
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPrivateRTAZ2"
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+  App2PrivateEgressAZ2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App2CIDRPrefix"
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPrivateRTAZ2"
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+  App2NAT66Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressCIDRPrefix"
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App2PrivateRT"
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+  IPv6EgressTransitGatewayNAT66ProxyRoute:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      DestinationCidrBlock: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressCIDRPrefix"
+      TransitGatewayRouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-AppTransitGatewayRouteTable"
+      TransitGatewayAttachmentId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressTransitGatewayAttachment"

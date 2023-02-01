@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This Cloudformation creates Egress Only Internet Gateways for App VPC
+Parameters:
+  NetworkStackName:
+    Description: "Name of the base network stack"
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+Resources:
+  NATAZ1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - EIP1
+          - AllocationId
+      SubnetId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPublicSubnetAZ1"
+      Tags:
+        - Key: Name
+          Value: Egress_AZ1
+  NATAZ2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - EIP2
+          - AllocationId
+      SubnetId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPublicSubnetAZ2"
+      Tags:
+        - Key: Name
+          Value: Egress_AZ2
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  EIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  NATRouteAZ1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPrivateRTAZ1"
+      DestinationIpv6CidrBlock: 64:ff9b::/96
+      NatGatewayId:
+        Ref: NATAZ1
+  NATRouteAZ2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressPrivateRTAZ2"
+      DestinationIpv6CidrBlock: 64:ff9b::/96
+      NatGatewayId:
+        Ref: NATAZ2
+  IPv6EgressTransitGatewayRoute:
+    Type: AWS::EC2::TransitGatewayRoute
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - E3031
+    Properties:
+      DestinationCidrBlock: 64:ff9b::/96
+      TransitGatewayRouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-AppTransitGatewayRouteTable"
+      TransitGatewayAttachmentId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EgressTransitGatewayAttachment"
+  App1EC2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: 64:ff9b::/96
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App1PrivateRT"
+  App2EC2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: 64:ff9b::/96
+      TransitGatewayId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-EC2TransitGateway"
+      RouteTableId: !ImportValue
+        "Fn::Sub": "${NetworkStackName}-App2PrivateRT"

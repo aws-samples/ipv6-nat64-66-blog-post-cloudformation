@@ -1,0 +1,802 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This Cloudformation creates resources for the attached blog
+Parameters:
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+Resources:
+  App1VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: App1VPC
+  App1IPv6CidrBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId:
+        Ref: App1VPC
+  App2VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: App2VPC
+  App2IPv6CidrBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId:
+        Ref: App2VPC
+  EgressVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: EgressVPC
+  EgressIPv6CidrBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId:
+        Ref: EgressVPC
+  App1PrivateAZ1:
+    Type: AWS::EC2::Subnet
+    DependsOn: App1IPv6CidrBlock
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      CidrBlock: 10.0.0.0/24
+      VpcId:
+        Ref: App1VPC
+      MapPublicIpOnLaunch: false
+      EnableDns64: true
+      Tags:
+        - Key: Name
+          Value: App1PrivateAZ1
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - ${VpcPart}${SubnetPart}
+          - SubnetPart: 00::/64
+            VpcPart:
+              Fn::Select:
+                - 0
+                - Fn::Split:
+                    - 00::/56
+                    - Fn::Select:
+                        - 0
+                        - Fn::GetAtt:
+                            - App1VPC
+                            - Ipv6CidrBlocks
+  App1PrivateAZ2:
+    Type: AWS::EC2::Subnet
+    DependsOn: App1IPv6CidrBlock
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      CidrBlock: 10.0.1.0/24
+      VpcId:
+        Ref: App1VPC
+      MapPublicIpOnLaunch: false
+      EnableDns64: true
+      Tags:
+        - Key: Name
+          Value: App1PrivateAZ2
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - ${VpcPart}${SubnetPart}
+          - SubnetPart: 01::/64
+            VpcPart:
+              Fn::Select:
+                - 0
+                - Fn::Split:
+                    - 00::/56
+                    - Fn::Select:
+                        - 0
+                        - Fn::GetAtt:
+                            - App1VPC
+                            - Ipv6CidrBlocks
+  App2PrivateAZ1:
+    Type: AWS::EC2::Subnet
+    DependsOn: App2IPv6CidrBlock
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      CidrBlock: 10.0.0.0/24
+      VpcId:
+        Ref: App2VPC
+      MapPublicIpOnLaunch: false
+      EnableDns64: true
+      Tags:
+        - Key: Name
+          Value: App2PrivateAZ1
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - ${VpcPart}${SubnetPart}
+          - SubnetPart: 00::/64
+            VpcPart:
+              Fn::Select:
+                - 0
+                - Fn::Split:
+                    - 00::/56
+                    - Fn::Select:
+                        - 0
+                        - Fn::GetAtt:
+                            - App2VPC
+                            - Ipv6CidrBlocks
+  App2PrivateAZ2:
+    Type: AWS::EC2::Subnet
+    DependsOn: App2IPv6CidrBlock
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      CidrBlock: 10.0.1.0/24
+      VpcId:
+        Ref: App2VPC
+      MapPublicIpOnLaunch: false
+      EnableDns64: true
+      Tags:
+        - Key: Name
+          Value: App2PrivateAZ2
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - ${VpcPart}${SubnetPart}
+          - SubnetPart: 01::/64
+            VpcPart:
+              Fn::Select:
+                - 0
+                - Fn::Split:
+                    - 00::/56
+                    - Fn::Select:
+                        - 0
+                        - Fn::GetAtt:
+                            - App2VPC
+                            - Ipv6CidrBlocks
+  EgressPrivateAZ1:
+    Type: AWS::EC2::Subnet
+    DependsOn: EgressIPv6CidrBlock
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      CidrBlock: 192.168.3.0/24
+      VpcId:
+        Ref: EgressVPC
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: EgressPrivateAZ1
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - ${VpcPart}${SubnetPart}
+          - SubnetPart: 02::/64
+            VpcPart:
+              Fn::Select:
+                - 0
+                - Fn::Split:
+                    - 00::/56
+                    - Fn::Select:
+                        - 0
+                        - Fn::GetAtt:
+                            - EgressVPC
+                            - Ipv6CidrBlocks
+  EgressPrivateAZ2:
+    Type: AWS::EC2::Subnet
+    DependsOn: EgressIPv6CidrBlock
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      CidrBlock: 192.168.4.0/24
+      VpcId:
+        Ref: EgressVPC
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: EgressPrivateAZ2
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - ${VpcPart}${SubnetPart}
+          - SubnetPart: 03::/64
+            VpcPart:
+              Fn::Select:
+                - 0
+                - Fn::Split:
+                    - 00::/56
+                    - Fn::Select:
+                        - 0
+                        - Fn::GetAtt:
+                            - EgressVPC
+                            - Ipv6CidrBlocks
+  EgressPublicAZ1:
+    Type: AWS::EC2::Subnet
+    DependsOn: EgressIPv6CidrBlock
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      CidrBlock: 192.168.1.0/24
+      VpcId:
+        Ref: EgressVPC
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: EgressPublicAZ1
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - ${VpcPart}${SubnetPart}
+          - SubnetPart: 00::/64
+            VpcPart:
+              Fn::Select:
+                - 0
+                - Fn::Split:
+                    - 00::/56
+                    - Fn::Select:
+                        - 0
+                        - Fn::GetAtt:
+                            - EgressVPC
+                            - Ipv6CidrBlocks
+  EgressPublicAZ2:
+    Type: AWS::EC2::Subnet
+    DependsOn: EgressIPv6CidrBlock
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      CidrBlock: 192.168.2.0/24
+      VpcId:
+        Ref: EgressVPC
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: EgressPublicAZ2
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - ${VpcPart}${SubnetPart}
+          - SubnetPart: 01::/64
+            VpcPart:
+              Fn::Select:
+                - 0
+                - Fn::Split:
+                    - 00::/56
+                    - Fn::Select:
+                        - 0
+                        - Fn::GetAtt:
+                            - EgressVPC
+                            - Ipv6CidrBlocks
+  EgressPublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: EgressVPC
+  EgressPrivateRTAZ1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: EgressVPC
+  EgressPrivateRTAZ2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: EgressVPC
+  App1PrivateRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: App1VPC
+  App2PrivateRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: App2VPC
+  EgressInternetIPv6Route:
+    DependsOn: IGWAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      EgressOnlyInternetGatewayId:
+        Ref: EIGW
+      RouteTableId:
+        Ref: EgressPublicRT
+  EgressInternetIPv4Route:
+    DependsOn: IGWAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: IGW
+      RouteTableId:
+        Ref: EgressPublicRT
+  EgressToApp1EC2Route:
+    DependsOn: EgressTransitGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock:
+        Fn::Select:
+          - 0
+          - Fn::GetAtt:
+              - App1VPC
+              - Ipv6CidrBlocks
+      TransitGatewayId:
+        Ref: EC2TransitGateway
+      RouteTableId:
+        Ref: EgressPublicRT
+  EgressToApp2EC2Route:
+    DependsOn: EgressTransitGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock:
+        Fn::Select:
+          - 0
+          - Fn::GetAtt:
+              - App2VPC
+              - Ipv6CidrBlocks
+      TransitGatewayId:
+        Ref: EC2TransitGateway
+      RouteTableId:
+        Ref: EgressPublicRT
+  TGWENISubnetRouteTable1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: EgressPrivateRTAZ1
+      SubnetId:
+        Ref: EgressPrivateAZ1
+  TGWENISubnetRouteTable2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: EgressPrivateRTAZ2
+      SubnetId:
+        Ref: EgressPrivateAZ2
+  TGWENISubnetRouteTable3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: App1PrivateRT
+      SubnetId:
+        Ref: App1PrivateAZ1
+  TGWENISubnetRouteTable4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: App1PrivateRT
+      SubnetId:
+        Ref: App1PrivateAZ2
+  TGWENISubnetRouteTable5:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: App2PrivateRT
+      SubnetId:
+        Ref: App2PrivateAZ1
+  TGWENISubnetRouteTable6:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: App2PrivateRT
+      SubnetId:
+        Ref: App2PrivateAZ2
+  PublicSubnetRouteTable1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: EgressPublicRT
+      SubnetId:
+        Ref: EgressPublicAZ1
+  PublicSubnetRouteTable2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: EgressPublicRT
+      SubnetId:
+        Ref: EgressPublicAZ2
+  EIGW:
+    Type: AWS::EC2::EgressOnlyInternetGateway
+    Properties:
+      VpcId:
+        Ref: EgressVPC
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: IGW
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+        Ref: IGW
+      VpcId:
+        Ref: EgressVPC
+  EC2TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      AmazonSideAsn: 64512
+      AutoAcceptSharedAttachments: disable
+      DefaultRouteTableAssociation: disable
+      DefaultRouteTablePropagation: disable
+      DnsSupport: enable
+      VpnEcmpSupport: enable
+      Tags:
+        - Key: Name
+          Value: TGW-Internet
+  App1TransitGatewayRoute:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      DestinationCidrBlock:
+        Fn::Select:
+          - 0
+          - Fn::GetAtt:
+              - App1VPC
+              - Ipv6CidrBlocks
+      TransitGatewayRouteTableId:
+        Ref: EgressTransitGatewayRouteTable
+      TransitGatewayAttachmentId:
+        Ref: App1TransitGatewayAttachment
+  App2TransitGatewayRoute:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      DestinationCidrBlock:
+        Fn::Select:
+          - 0
+          - Fn::GetAtt:
+              - App2VPC
+              - Ipv6CidrBlocks
+      TransitGatewayRouteTableId:
+        Ref: EgressTransitGatewayRouteTable
+      TransitGatewayAttachmentId:
+        Ref: App2TransitGatewayAttachment
+  AppTransitGatewayRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: AppRouteTable
+      TransitGatewayId:
+        Ref: EC2TransitGateway
+  EgressTransitGatewayRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: EgressRouteTable
+      TransitGatewayId:
+        Ref: EC2TransitGateway
+  App1TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      Options:
+        Ipv6Support: enable
+      SubnetIds:
+        - Ref: App1PrivateAZ1
+        - Ref: App1PrivateAZ2
+      Tags:
+        - Key: Name
+          Value: App1Attachment
+      TransitGatewayId:
+        Ref: EC2TransitGateway
+      VpcId:
+        Ref: App1VPC
+  App2TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      Options:
+        Ipv6Support: enable
+      SubnetIds:
+        - Ref: App2PrivateAZ1
+        - Ref: App2PrivateAZ2
+      Tags:
+        - Key: Name
+          Value: App2Attachment
+      TransitGatewayId:
+        Ref: EC2TransitGateway
+      VpcId:
+        Ref: App2VPC
+  EgressTransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      Options:
+        Ipv6Support: enable
+      SubnetIds:
+        - Ref: EgressPrivateAZ1
+        - Ref: EgressPrivateAZ2
+      Tags:
+        - Key: Name
+          Value: EgressAttachment
+      TransitGatewayId:
+        Ref: EC2TransitGateway
+      VpcId:
+        Ref: EgressVPC
+  App1VPCAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties:
+      TransitGatewayAttachmentId:
+        Ref: App1TransitGatewayAttachment
+      TransitGatewayRouteTableId:
+        Ref: AppTransitGatewayRouteTable
+  App2VPCAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties:
+      TransitGatewayAttachmentId:
+        Ref: App2TransitGatewayAttachment
+      TransitGatewayRouteTableId:
+        Ref: AppTransitGatewayRouteTable
+  EgressVPCAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties:
+      TransitGatewayAttachmentId:
+        Ref: EgressTransitGatewayAttachment
+      TransitGatewayRouteTableId:
+        Ref: EgressTransitGatewayRouteTable
+  EC2Role:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W28
+            reason: "Providing a descriptive name for this role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: String
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: /
+      RoleName:
+        Fn::Join:
+          - "-"
+          - - EC2toSSM
+            - Fn::Select:
+                - 0
+                - Fn::Split:
+                    - "-"
+                    - Fn::Select:
+                        - 2
+                        - Fn::Split:
+                            - /
+                            - Ref: AWS::StackId
+  Ec2SSMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - Ref: EC2Role
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      SecurityGroupIds:
+        - Ref: SecurityGroupEC2
+      ImageId:
+        Ref: LatestAmiId
+      InstanceType: t2.micro
+      Ipv6AddressCount: 1
+      IamInstanceProfile:
+        Ref: Ec2SSMInstanceProfile
+      SubnetId:
+        Ref: App1PrivateAZ1
+      Tags:
+        - Key: Name
+          Value: IPv6NAT-Test
+  SecurityGroupEC2:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W5
+            reason: "Traffic filtering will in the Egress-VPC"
+          - id: W28
+            reason: "Providing a descriptive name for this security group"
+          - id: W40
+            reason: "Traffic filtering will in the Egress-VPC"
+          - id: W42
+            reason: "Traffic filtering will in the Egress-VPC"
+    Properties:
+      GroupDescription: Security Group to access EC2 and Endpoints
+      GroupName: SGforEC2&SSM
+      VpcId:
+        Ref: App1VPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: "Allow all outbound traffic (IPv4)"
+        - IpProtocol: -1
+          CidrIpv6: ::/0
+          Description: "Allow all outbound traffic (IPv6)"
+  SecurityGroupEC2Ingress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Ingress rule for allowing traffic from EC2 with the same security group
+      IpProtocol: -1
+      GroupId:
+        Ref: SecurityGroupEC2
+      SourceSecurityGroupId:
+        Ref: SecurityGroupEC2
+  SSMEndpointEC2messages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - Ref: SecurityGroupEC2
+      ServiceName:
+        Fn::Sub: com.amazonaws.${AWS::Region}.ec2messages
+      SubnetIds:
+        - Ref: App1PrivateAZ1
+      VpcEndpointType: Interface
+      VpcId:
+        Ref: App1VPC
+  SSMEndpointssm:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - Ref: SecurityGroupEC2
+      ServiceName:
+        Fn::Sub: com.amazonaws.${AWS::Region}.ssm
+      SubnetIds:
+        - Ref: App1PrivateAZ1
+      VpcEndpointType: Interface
+      VpcId:
+        Ref: App1VPC
+  SSMEndpointSSMmessages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - Ref: SecurityGroupEC2
+      ServiceName:
+        Fn::Sub: com.amazonaws.${AWS::Region}.ssmmessages
+      SubnetIds:
+        - Ref: App1PrivateAZ1
+      VpcEndpointType: Interface
+      VpcId:
+        Ref: App1VPC
+Outputs:
+  EgressPrivateRTAZ1:
+    Description: The ID of the egress private route table for AZ1
+    Value: !Ref EgressPrivateRTAZ1
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressPrivateRTAZ1"
+  EgressPrivateRTAZ2:
+    Description: The ID of the egress private route table for AZ2
+    Value: !Ref EgressPrivateRTAZ2
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressPrivateRTAZ2"
+  App1PrivateRT:
+    Description: The ID of the App1 private route table
+    Value: !Ref App1PrivateRT
+    Export:
+      Name: !Sub "${AWS::StackName}-App1PrivateRT"
+  App2PrivateRT:
+    Description: The ID of the App2 private route table
+    Value: !Ref App2PrivateRT
+    Export:
+      Name: !Sub "${AWS::StackName}-App2PrivateRT"
+  EgressPublicSubnetAZ1:
+    Description: The ID of the egress public subnet for AZ1
+    Value: !Ref EgressPublicAZ1
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressPublicSubnetAZ1"
+  EgressPublicSubnetAZ2:
+    Description: The ID of the egress public subnet for AZ2
+    Value: !Ref EgressPublicAZ2
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressPublicSubnetAZ2"
+  EgressPrivateSubnetAZ1:
+    Description: The ID of the egress private subnet for AZ1
+    Value: !Ref EgressPrivateAZ1
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressPrivateSubnetAZ1"
+  EgressPrivateSubnetAZ2:
+    Description: The ID of the egress private subnet for AZ2
+    Value: !Ref EgressPrivateAZ2
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressPrivateSubnetAZ2"
+  EC2TransitGateway:
+    Description: The ID of the EC2 Transit Gateway
+    Value: !Ref EC2TransitGateway
+    Export:
+      Name: !Sub "${AWS::StackName}-EC2TransitGateway"
+  App1CIDRPrefix:
+    Description: IPv6 Prefix for App1 VPC
+    Value:
+      Fn::Select:
+        - 0
+        - Fn::GetAtt:
+            - App1VPC
+            - Ipv6CidrBlocks
+    Export:
+      Name: !Sub "${AWS::StackName}-App1CIDRPrefix"
+  App2CIDRPrefix:
+    Description: IPv6 Prefix for App2 VPC
+    Value:
+      Fn::Select:
+        - 0
+        - Fn::GetAtt:
+            - App2VPC
+            - Ipv6CidrBlocks
+    Export:
+      Name: !Sub "${AWS::StackName}-App2CIDRPrefix"
+  EgressCIDRPrefix:
+    Description: IPv6 Prefix for App2 VPC
+    Value:
+      Fn::Select:
+        - 0
+        - Fn::GetAtt:
+            - EgressVPC
+            - Ipv6CidrBlocks
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressCIDRPrefix"
+  EgressCIDRIPv4Prefix:
+    Description: IPv4 Prefix for App2 VPC
+    Value:
+      Fn::GetAtt:
+        - EgressVPC
+        - CidrBlock
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressCIDRIPv4Prefix"
+  EgressVPC:
+    Description: Egress VPC ID
+    Value: !Ref EgressVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressVPC"
+  App1VPC:
+    Description: Egress VPC ID
+    Value: !Ref App1VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-App1VPC"
+  App2VPC:
+    Description: Egress VPC ID
+    Value: !Ref App2VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-App2VPC"
+  EgressTransitGatewayAttachment:
+    Description: Egnress transit gateway attachement ID
+    Value: !Ref EgressTransitGatewayAttachment
+    Export:
+      Name: !Sub "${AWS::StackName}-EgressTransitGatewayAttachment"
+  AppTransitGatewayRouteTable:
+    Description: App Transit Gateway Route Table ID
+    Value: !Ref AppTransitGatewayRouteTable
+    Export:
+      Name: !Sub "${AWS::StackName}-AppTransitGatewayRouteTable"
